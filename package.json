@@ -1,0 +1,23 @@
+{
+  "name": "dm-outreach-from-database",
+  "version": "1.0.0",
+  "description": "Instagram DM automation tool with Google Sheets integration",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test_sheetsManager.js"
+  },
+  "keywords": [
+    "instagram",
+    "automation",
+    "google-sheets"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "googleapis": "^126.0.1",
+    "playwright": "^1.40.0"
+  }
+}
+
+

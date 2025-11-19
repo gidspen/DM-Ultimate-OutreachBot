@@ -1,0 +1,486 @@
+================================================================================
+DM OUTREACH FROM DATABASE - PROJECT SUMMARY
+================================================================================
+
+This project is an Instagram automation tool that performs automated direct 
+message (DM) drafting to users listed in a Google Sheet. It uses Playwright 
+for browser automation, Google Sheets API for data management, and implements 
+human-like behavior patterns to avoid detection.
+
+================================================================================
+CORE FUNCTIONALITY
+================================================================================
+
+The system reads user data from a Google Sheet, filters and deduplicates the 
+dataset, opens Instagram DM interfaces for each user, checks for existing 
+conversations, and drafts personalized messages. All actions are tracked and 
+updated in the Google Sheet in real-time.
+
+================================================================================
+MAIN ENTRY POINTS
+================================================================================
+
+1. main_messageDrafter.js
+   - Primary orchestrator script
+   - Entry point: node main_messageDrafter.js
+   - Coordinates all modules to execute the full automation workflow
+   - Handles environment validation, data loading, filtering, browser management,
+     user processing, status updates, and error handling
+   - Supports dry-run mode via --dry-run flag
+
+2. loginSeeder.js
+   - Initial login session setup
+   - Entry point: node loginSeeder.js
+   - Launches browser with persistent context
+   - Allows manual Instagram login
+   - Saves session to ./browser-data for reuse by other scripts
+   - Must be run before main_messageDrafter.js on first use
+
+================================================================================
+MODULE BREAKDOWN
+================================================================================
+
+ENVIRONMENT & CONFIGURATION
+----------------------------
+
+envValidator.js
+  - Validates all required environment variables upfront
+  - Ensures INSTAGRAM_USERNAME, GOOGLE_SHEET_ID, GOOGLE_SHEET_NAME are set
+  - Validates GOOGLE_CREDENTIALS or GOOGLE_CREDENTIALS_PATH
+  - Validates DRAFT_MESSAGE, ACTIVATE_STATUS, SOURCE_MODE
+  - Parses and validates MAX_DRAFT and MAX_PROCCESS as integers
+  - Normalizes SOURCE_MODE to lowercase
+  - Returns sanitized configuration object
+  - Throws descriptive errors on validation failure
+
+DATA LAYER
+----------
+
+sheetsManager.js
+  - Google Sheets API integration layer
+  - loadCredentials(): Loads service account credentials from env vars
+    * Supports GOOGLE_CREDENTIALS (inline JSON) or GOOGLE_CREDENTIALS_PATH
+    * Validates JSON structure
+  - buildSheetsClient(): Creates authenticated Google Sheets API client
+  - validateHeaders(): Ensures sheet has required columns in exact order:
+    * Date Added, Username, Source, Date Sent, Message, Status
+  - loadDatabaseRows(): Retrieves all rows from sheet
+    * Validates headers
+    * Converts rows to structured objects (rowIndex, username, source, status, rawRow)
+    * Normalizes usernames to lowercase
+    * Skips blank/malformed rows
+  - updateDraftData(): Updates specific row with draft information
+    * Updates Date Sent, Message, and Status columns
+    * Supports custom status values (Drafted, Convo Exists, Failed)
+
+databaseLoader.js
+  - Data preprocessing and filtering module
+  - loadFilteredDatabase(): Orchestrates filtering pipeline
+    * Loads all rows via sheetsManager
+    * Applies status filter (ACTIVATE_STATUS)
+    * Applies source mode filter (SOURCE_MODE: likes, comments, followers, all)
+    * Deduplicates by username (keeps first occurrence)
+    * Applies MAX_PROCCESS limit
+  - Returns clean, ready-to-process array of user objects
+  - Contains no Instagram or Google Sheets API logic
+
+UTILITIES
+---------
+
+logger.js
+  - Structured logging utility
+  - Methods: info(), warn(), error(), success(), section()
+  - Human-readable timestamps (YYYY-MM-DD HH:MM:SS)
+  - Optional file logging to automation.log (if ENABLE_FILE_LOGGING=true)
+  - Dependency-free and synchronous
+  - Used throughout the system for consistent logging
+
+utils.js
+  - Shared utility functions
+  - humanDelay(): Random delay between min/max to mimic human behavior
+  - ts(): Returns ISO timestamp string
+  - Used by multiple modules for consistent timing and timestamps
+
+INSTAGRAM AUTOMATION LAYER
+---------------------------
+
+dmFlowController.js
+  - Unified DM opening orchestrator
+  - openDMController(): Attempts multiple methods to open DM interface
+    * Tries Flow 1 (direct message button) first
+    * Falls back to Flow 2 (options menu) if Flow 1 fails
+    * Returns detailed result object with success status and method used
+  - Acts as facade pattern for the two DM opening flows
+
+flow1_directMessage.js
+  - Primary DM opening method
+  - openDirectMessage(): Clicks "Message" button on profile page
+    * Uses multiple selector fallbacks for robustness
+    * Waits for DM modal to appear
+    * Validates DM interface is ready
+    * Returns success/failure result
+
+flow2_optionsMenu.js
+  - Fallback DM opening method
+  - openDMViaOptionsMenu(): Uses profile options menu
+    * Opens three-dot menu
+    * Clicks "Send message" option
+    - Waits for DM modal to appear
+    - Validates DM interface is ready
+    - Returns success/failure result
+
+conversationDetector.js
+  - Detects existing conversations in DM interface
+  - detectExistingConversation(): Checks if DM thread has messages
+    * Uses conversationTools.hasExistingMessages()
+    * Returns object with hasConversation boolean and messageCount
+  - Used to skip users who already have conversations
+
+conversationTools.js
+  - Conversation detection utilities
+  - getFirstName(): Extracts first name from Instagram profile
+    * Handles modal vs full-page layouts
+    * Uses multiple selector strategies
+    * Returns sanitized first name or empty string
+  - hasExistingMessages(): Detects if DM thread contains messages
+    * Checks for message bubbles or conversation indicators
+    * Returns boolean
+
+messageDrafter.js
+  - Drafts personalized messages in DM input field
+  - draftMessage(): Types message into DM input
+    * Extracts first name via nameExtractor
+    * Builds personalized message from DRAFT_MESSAGE template
+    * Locates DM input field using multiple selectors
+    * Clears existing text
+    * Types message with human-like keystrokes (first 10 chars individually)
+    * Dispatches input/change events for Instagram recognition
+    * Verifies message was typed correctly
+  - Does NOT send the message (only drafts it)
+  - Returns success status and final message text
+
+nameExtractor.js
+  - Extracts first name from Instagram profile
+  - extractFirstName(): Gets first name from profile page
+    * Uses conversationTools.getFirstName()
+    * Validates name with isValidFirstName()
+  - Used for message personalization
+
+================================================================================
+WORKFLOW EXECUTION
+================================================================================
+
+1. ENVIRONMENT VALIDATION
+   - envValidator.validateEnv() checks all required variables
+   - Fails fast with clear error messages if validation fails
+
+2. DATA LOADING
+   - sheetsManager.loadDatabaseRows() retrieves all rows from Google Sheet
+   - Validates sheet structure (headers must match exactly)
+
+3. FILTERING & DEDUPLICATION
+   - databaseLoader.loadFilteredDatabase() processes raw rows:
+     * Filters by ACTIVATE_STATUS
+     * Filters by SOURCE_MODE (or includes all if SOURCE_MODE="all")
+     * Deduplicates by username
+     * Applies MAX_PROCCESS limit
+
+4. BROWSER INITIALIZATION
+   - Launches Playwright browser with persistent context (./browser-data)
+   - Reuses existing session if available
+   - Checks login status, prompts to run loginSeeder.js if not logged in
+
+5. USER PROCESSING LOOP
+   For each filtered user (up to MAX_DRAFT):
+   
+   a. Create new browser tab for user
+   
+   b. Navigate to user's Instagram profile
+      - URL: https://www.instagram.com/{username}/
+   
+   c. Open DM interface
+      - dmFlowController.openDMController() tries Flow 1, then Flow 2
+      - If both fail, mark as "Failed" and continue
+   
+   d. Check for existing conversation
+      - conversationDetector.detectExistingConversation()
+      - If conversation exists, mark as "Convo Exists" and continue
+   
+   e. Draft message
+      - messageDrafter.draftMessage()
+      - Extracts first name and personalizes message
+      - If drafting fails, mark as "Failed" and continue
+   
+   f. Update Google Sheet
+      - sheetsManager.updateDraftData() updates Date Sent, Message, Status
+      - Status: "Drafted", "Convo Exists", or "Failed"
+   
+   g. Tab management
+      - If successful: Keep tab open for manual review
+      - If failed: Close tab immediately
+
+6. SHUTDOWN
+   - Log final summary
+   - Browser remains open with successful draft tabs
+   - Process exits cleanly
+
+================================================================================
+ENVIRONMENT VARIABLES
+================================================================================
+
+Required Variables:
+-------------------
+
+INSTAGRAM_USERNAME
+  - Your Instagram username
+  - Used for login verification and profile navigation
+
+GOOGLE_SHEET_ID
+  - Google Sheets spreadsheet ID (from URL)
+  - Used to identify which sheet to read/write
+
+GOOGLE_SHEET_NAME
+  - Name of the specific sheet/tab within the spreadsheet
+  - Default: "Sheet1"
+
+GOOGLE_CREDENTIALS or GOOGLE_CREDENTIALS_PATH
+  - Google Service Account JSON credentials
+  - GOOGLE_CREDENTIALS: Inline JSON string in .env file
+  - GOOGLE_CREDENTIALS_PATH: Path to JSON credentials file
+  - Either one must be provided
+
+DRAFT_MESSAGE
+  - Message template for DMs
+  - Supports {firstName} placeholder for personalization
+  - Example: "Hey {firstName}! Thanks for following. How can I help?"
+
+ACTIVATE_STATUS
+  - Status value to filter rows
+  - Only rows with this exact status will be processed
+  - Example: "Pending"
+
+SOURCE_MODE
+  - Source filter: likes, comments, followers, or all
+  - Normalized to lowercase automatically
+  - "all" includes rows from any source
+
+MAX_DRAFT
+  - Maximum number of messages to draft
+  - Positive integer
+  - Stops processing after reaching this limit
+
+MAX_PROCCESS
+  - Maximum number of rows to process (after filtering)
+  - Positive integer
+  - Applied during databaseLoader filtering stage
+
+Optional Variables:
+-------------------
+
+ENABLE_FILE_LOGGING
+  - Set to "true" to enable file logging
+  - Logs written to automation.log in project root
+  - Default: disabled
+
+================================================================================
+GOOGLE SHEET STRUCTURE
+================================================================================
+
+Required Columns (in exact order):
+----------------------------------
+
+1. Date Added
+   - When the user was added to the database
+   - Not modified by the system
+
+2. Username
+   - Instagram username
+   - Normalized to lowercase during processing
+   - Used for navigation and deduplication
+
+3. Source
+   - Source of the user (likes, comments, followers, etc.)
+   - Used for SOURCE_MODE filtering
+
+4. Date Sent
+   - Automatically updated when message is drafted
+   - ISO timestamp format
+   - Empty for unprocessed rows
+
+5. Message
+   - Automatically updated with drafted message text
+   - Includes personalized content (first name inserted)
+   - Empty for unprocessed rows
+
+6. Status
+   - Processing status
+   - Values: "Pending", "Drafted", "Convo Exists", "Failed"
+   - Automatically updated during processing
+
+================================================================================
+STATUS VALUES
+================================================================================
+
+Pending
+  - Initial status for users ready to be processed
+  - Set manually in Google Sheet
+  - Required for ACTIVATE_STATUS filtering
+
+Drafted
+  - Message successfully drafted in DM interface
+  - Date Sent and Message columns are populated
+  - Tab remains open for manual review
+
+Convo Exists
+  - User already has an existing conversation
+  - Detected by conversationDetector
+  - Date Sent is populated, Message is empty
+  - User is skipped (no message drafted)
+
+Failed
+  - Error occurred during processing
+  - Possible reasons:
+    * DM interface couldn't be opened
+    * Message drafting failed
+    * Unexpected error
+  - Date Sent is populated, Message contains error details
+  - Tab is closed immediately
+
+================================================================================
+ERROR HANDLING
+================================================================================
+
+Individual User Failures:
+-------------------------
+- Errors for individual users don't crash the entire process
+- Each user is processed in a try/catch block
+- Errors are logged with detailed messages
+- Failed users are marked with "Failed" status
+- Processing continues to next user
+
+Global Failures:
+---------------
+- Environment validation failures stop execution immediately
+- Google Sheets API failures stop execution (can't load data)
+- Browser initialization failures stop execution
+- All global failures are logged with clear error messages
+
+Recovery:
+--------
+- Browser session persists across runs (./browser-data)
+- Google Sheet updates are atomic (per row)
+- Failed users can be reprocessed by resetting status to "Pending"
+- Dry-run mode allows testing without side effects
+
+================================================================================
+DEPENDENCIES
+================================================================================
+
+npm Packages:
+------------
+- playwright: ^1.40.0
+  Browser automation framework
+
+- googleapis: ^126.0.1
+  Google Sheets API client
+
+- dotenv: ^16.3.1
+  Environment variable management
+
+Node.js Built-ins:
+-----------------
+- fs: File system operations
+- readline: User input (loginSeeder.js only)
+
+================================================================================
+ARCHITECTURE PATTERNS
+================================================================================
+
+Modular Design:
+--------------
+- Each module has a single, well-defined responsibility
+- Clear separation between data layer, automation layer, and utilities
+- Easy to test and maintain individual components
+
+Facade Pattern:
+--------------
+- dmFlowController.js acts as facade for flow1 and flow2
+- Simplifies interface for main orchestrator
+- Provides fallback logic transparently
+
+Error Resilience:
+---------------
+- Individual user failures don't affect other users
+- Graceful degradation (try Flow 1, fallback to Flow 2)
+- Comprehensive error logging for debugging
+
+Human-like Behavior:
+------------------
+- Randomized delays between actions
+- Human-like typing patterns (first 10 chars individually)
+- Natural navigation flow
+- Helps avoid bot detection
+
+================================================================================
+SECURITY CONSIDERATIONS
+================================================================================
+
+Credentials:
+-----------
+- Google Service Account credentials stored in .env file
+- .env file should be in .gitignore
+- Never commit credentials to version control
+
+Browser Session:
+---------------
+- Browser session data stored in ./browser-data
+- Contains authentication cookies and tokens
+- Should be kept secure and not shared
+
+Rate Limiting:
+------------
+- System includes human-like delays to minimize rate limiting
+- Instagram may still rate-limit excessive automation
+- Use responsibly to avoid account restrictions
+
+================================================================================
+LIMITATIONS
+================================================================================
+
+Instagram Restrictions:
+---------------------
+- Some users may have privacy settings that block DMs
+- Instagram may detect automation and require verification
+- Rate limiting may occur with high-volume usage
+
+Browser Session:
+---------------
+- Sessions may expire and require re-authentication
+- Run loginSeeder.js if "Not logged in" errors occur
+
+Google Sheets:
+------------
+- Service account must have "Editor" access to the sheet
+- Sheet structure must match exactly (column order matters)
+- Large sheets may have API rate limits
+
+================================================================================
+FUTURE ENHANCEMENTS
+================================================================================
+
+Potential Improvements:
+----------------------
+- Retry logic for failed users
+- Configurable delay ranges
+- Multiple message templates
+- Batch processing optimization
+- Webhook notifications for completion
+- Dashboard for monitoring progress
+- Support for multiple Instagram accounts
+- Advanced conversation detection (message content analysis)
+
+================================================================================
+END OF SUMMARY
+================================================================================
+
+

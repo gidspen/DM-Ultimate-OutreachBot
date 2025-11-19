@@ -1,4 +1,4 @@
-#DM Ultimate Outreach Bot
+# Instagram DM Draft Automation
 
 An automated Instagram direct message drafting system that reads user data from Google Sheets, opens DM interfaces, checks for existing conversations, and drafts personalized messages. The system uses Playwright for browser automation and integrates with Google Sheets API for data management.
 
@@ -49,9 +49,11 @@ GOOGLE_SHEET_ID=your_sheet_id_here
 GOOGLE_SHEET_NAME=Sheet1
 
 # Google Service Account Credentials (choose one)
-GOOGLE_CREDENTIALS={"type":"service_account","project_id":"..."}
-# OR
-GOOGLE_CREDENTIALS_PATH=./path/to/credentials.json
+# Option 1: Inline JSON string (paste your full service account JSON here)
+# Get this from Google Cloud Console > IAM & Admin > Service Accounts
+GOOGLE_CREDENTIALS='{"type":"service_account","project_id":"your-project-id-here",...}'
+# Option 2: Path to credentials JSON file (recommended - more secure)
+GOOGLE_CREDENTIALS_PATH=./path/to/your-credentials-file.json
 
 # Message Template
 DRAFT_MESSAGE=Your message template here. Use {firstName} for personalization.
